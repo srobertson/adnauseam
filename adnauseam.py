@@ -17,7 +17,6 @@ Example:
 
 adnauseam -t my.template:config.conf /usr/bin/command 
 """
-__version__="0.0.1"
 
 import os
 import subprocess

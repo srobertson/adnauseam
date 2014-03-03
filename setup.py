@@ -1,12 +1,11 @@
 from __future__ import print_function
 from setuptools import setup, find_packages
-from setuptools.command.test import test as TestCommand
+
 import io
 import codecs
 import os
 import sys
 
-import adnauseam
 
 here = os.path.abspath(os.path.dirname(__file__))
 
@@ -24,7 +23,7 @@ long_description = read('README.md')
 
 setup(
     name='adnauseam',
-    version=adnauseam.__version__,
+    version="0.0.1",
     url='http://github.com/srobertson/adnauseam/',
     license='Apache Software License',
     author='Scott Robertson',
