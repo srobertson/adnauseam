@@ -32,7 +32,7 @@ BASE_URL = "http://172.17.42.1:4001/v2/keys/foo"
 
 Key = namedtuple('Key','path')
 
-
+__version__ = "0.0.1"
 def main():  # pragma: no cover
   arguments = docopt(__doc__, version="AdNauseum " + __version__)
 
