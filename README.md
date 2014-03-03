@@ -1,5 +1,5 @@
-AdNauseam
-========
+AdNauseam [![Build Status](https://travis-ci.org/trivio/adnauseam.png)](https://travis-ci.org/srobertson/adnauseam)
+=========
 
 Dynamic configuration templating system and process manager for processes that
 you want to configure with data from etcd.
