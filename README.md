@@ -30,7 +30,7 @@ Now use adnauseam to launch a process that needs this configuration.
 
 ```Bash
 $ adnauseam -t core-site.xml.template:/usr/lib/hadoop/conf/core-site.xml hadoop namednode
-Monitoring namenode/address namenode/part for /usr/lib/hadoop/core-site.xml
+Monitoring namenode/address namenode/port for /usr/lib/hadoop/core-site.xml
 
 ```
 
