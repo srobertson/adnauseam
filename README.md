@@ -37,7 +37,7 @@ Monitoring namenode/address namenode/port for /usr/lib/hadoop/core-site.xml
 The `-t <template path>:<output path>` instructs AdNauseam to generate the output file
 based on the template. You can specify multipe `-t` pairs if you wish.
 
-It this example AdNauseam reads the template core-site.xml.template and monitors
+In this example AdNauseam reads the template core-site.xml.template and monitors
 the keys found in the template `namednode/address` and `nammednode/port`. When both
 of these values are present AdNauseam will generate `/usr/lib/hadoop/conf/core-site.xml`
 and execute the command `hadoop namenode`
