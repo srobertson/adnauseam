@@ -17,6 +17,7 @@ Example:
 
 adnauseam -t my.template:config.conf /usr/bin/command 
 """
+__version__ = "0.0.1"
 
 import os
 import subprocess
@@ -28,11 +29,11 @@ from collections import namedtuple, defaultdict
 import requests
 from docopt import docopt
 
-BASE_URL = "http://172.17.42.1:4001/v2/keys/foo"
+BASE_URL = "http://172.17.42.1:4001/v2/keys/"
 
 Key = namedtuple('Key','path')
 
-__version__ = "0.0.1"
+
 def main():  # pragma: no cover
   arguments = docopt(__doc__, version="AdNauseum " + __version__)
 
@@ -41,31 +42,83 @@ def main():  # pragma: no cover
     *arguments['<template>']
   )
 
-
 def monitor(command, *args):  # pragma: no cover
 
+  # ["blah:out", "foo:baz"] -> dict(blah="out", foo="baz")
   template_mapping = dict(a.split(':') for a in args)
   render, collect = compile_templates(template_mapping)
-  collect_env(collect)
-
   # setup our statemachine with it's initial state
   statemachine = proc_statemachine(not_running, command)
   statemachine.send(None)
 
 
+  collect_env(collect)
+  # start programs that needed values from the enviroment
+  # but not etcd
+  check_and_notify(render,template_mapping,statemachine)
+
   try:
     index = 1
     while True:
       index = wait(collect, BASE_URL, index)
- 
-      if len(render()) == len(template_mapping):
-        statemachine.send('start')
-      else:
-        statemachine.send('stop')
+      check_and_notify(render, template_mapping, statemachine)
 
   except KeyboardInterrupt:
     print "...Finishing"
 
+def check_and_notify(render, template_mapping, statemachine):
+  if len(render()) == len(template_mapping):
+    statemachine.send('start')
+  else:
+    statemachine.send('stop')
+
+## Template Parsing ##################
+def compile_templates(template_mapping):
+
+  keys_to_context = defaultdict(list)
+  outputs = []
+
+  for template_path, output_path in template_mapping.items():
+    keys, template = make_template(template_path)
+    context = {}
+    for key in keys:
+      keys_to_context[key].append(context)
+    outputs.append((output_path, partial(guard,template,keys),  context))
+
+
+  print keys_to_context.keys()
+  return partial(render, outputs), partial(collect, keys_to_context)
+
+def make_template(path):
+  """
+  >>> from adnauseam import TEST_ROOT
+  >>> test_template = os.path.join(TEST_ROOT, 'my.template')
+  >>> open(test_template,'w').write('''
+  ... Test template: {key1}
+  ... x = {key2}
+  ... y = {key2}
+  ... ''')
+
+  >>> keys, cooked = make_template(test_template) # doctest: +ELLIPSIS
+  >>> keys
+  ['key1', 'key2', 'key2']
+  >>> cooked(dict(key1='Mickey', key2='3.14'))
+  '\\nTest template: Mickey\\nx = 3.14\\ny = 3.14\\n'
+  """
+
+  tokens = load_template(open(path))
+  return keys(tokens), compile(tokens)
+
+def load_template(stream):
+  """
+  Rerturns a list of tokens from a file like object
+
+  >>> from StringIO import StringIO
+  >>> stream = StringIO("I'm a template\\n {a/key/yeah}")
+  >>> load_template(stream)
+  ["I'm a template\\n ", Key(path='a/key/yeah')]
+  """
+  return list(tokenize(stream.read()))
 
 
 def tokenize(template):
@@ -126,44 +179,6 @@ def compile(tokens):
   return partial(template, tokens)
 
 
-def set_key(n, key, value):
-  """
-  Given a dictionary, key and value update the key and
-  value and return the dictionary.
-  TODO: make this return a copy of the dictionary
-
-  >>> d = {}
-  >>> set_key(d, 'blah', 'hi mom')
-  {'blah': 'hi mom'}
-
-  """
-  n[key] = value
-  return n
-
-def del_key(n, key):
-  """
-  Given a dictionary and key remove the key  and
-  return the dictionary.
-  TODO: make this return a copy of the dictionary
-
-  >>> d = {'blah': 'some value'}
-  >>> del_key(d, 'blah')
-  {}
-
-  """
-  del n[key]
-  return n
-
-def wait(dispatch, url, index): # pragma: no cover
-  
-  resp = requests.get('{}?wait=true&recursive=true&waitIndex={}'.format(
-    url,
-    index
-  )).json()
-  node =  resp['node']
-  dispatch(resp['action'], node)
-
-  return  node['modifiedIndex'] + 1
 
 def guard(func, keys, value_dict):
   """
@@ -186,37 +201,8 @@ def guard(func, keys, value_dict):
   return func(value_dict)
 
 
-def load_template(stream):
-  """
-  Rerturns a list of tokens from a file like object
 
-  >>> from StringIO import StringIO
-  >>> stream = StringIO("I'm a template\\n {a/key/yeah}")
-  >>> load_template(stream)
-  ["I'm a template\\n ", Key(path='a/key/yeah')]
-  """
-  return list(tokenize(stream.read()))
-
-def make_template(path):
-  """
-  >>> from adnauseam import TEST_ROOT
-  >>> test_template = os.path.join(TEST_ROOT, 'my.template')
-  >>> open(test_template,'w').write('''
-  ... Test template: {key1}
-  ... x = {key2}
-  ... y = {key2}
-  ... ''')
-
-  >>> keys, cooked = make_template(test_template) # doctest: +ELLIPSIS
-  >>> keys
-  ['key1', 'key2', 'key2']
-  >>> cooked(dict(key1='Mickey', key2='3.14'))
-  '\\nTest template: Mickey\\nx = 3.14\\ny = 3.14\\n'
-  """
-
-  tokens = load_template(open(path))
-  return keys(tokens), compile(tokens)
-
+## Value Collection ####################
 def collect(context_map, action, node):
   """
   Given a 
@@ -252,7 +238,7 @@ def collect(context_map, action, node):
 
   contexts = context_map.get(key)
   if not contexts:
-    return
+    return False
 
   if action in ('delete','expire'):
     new = tuple(del_key(c,key) for c in contexts)
@@ -261,12 +247,43 @@ def collect(context_map, action, node):
 
   context_map[key] = new
 
+  return True
+
+def set_key(n, key, value):
+  """
+  Given a dictionary, key and value update the key and
+  value and return the dictionary.
+  TODO: make this return a copy of the dictionary
+
+  >>> d = {}
+  >>> set_key(d, 'blah', 'hi mom')
+  {'blah': 'hi mom'}
+
+  """
+  n[key] = value
+  return n
+
+def del_key(n, key):
+  """
+  Given a dictionary and key remove the key  and
+  return the dictionary.
+  TODO: make this return a copy of the dictionary
+
+  >>> d = {'blah': 'some value'}
+  >>> del_key(d, 'blah')
+  {}
+
+  """
+  del n[key]
+  return n
+
+
 def render(outputs):
   """
   Given a list of tuples where each tuple = (path, template(), context)
 
-  Attempt to call the template with the context and the
-  results to path if there was any. Otherwise remove
+  Attempt to call the template with the context and save the
+  results to path if there was any output. Otherwise remove
   the path.
 
   Returns a list of all paths written.
@@ -303,6 +320,46 @@ def render(outputs):
   return created
 
 
+
+## Value collectors ####################
+def collect_env(collect):
+  # add everything under the environment to env/
+  for key,value in os.environ.items():
+    collect('set', dict(key='env/' + key,value=value))
+
+def collect_etcd(collect, url):
+  res = requests.get('{}?recursive=true'.format(
+    url
+  )).json()
+  return res
+
+def wait(dispatch, url, index): # pragma: no cover
+  """
+  Poll etcd watch for changes to keys
+  """
+  while True:
+    resp = requests.get('{}?wait=true&recursive=true&waitIndex={}'.format(
+      url,
+      index
+    )).json()
+    node =  resp['node']
+    
+    consumed = dispatch(resp['action'], node)
+    if consumed: break
+    # else no one cared so go back to watching
+
+  return  node['modifiedIndex'] + 1
+
+
+
+## Process Management ##################
+def proc_statemachine(state, cmd, *args):
+  while True:
+    action = yield
+    transition = state(action, cmd, *args)
+    state = transition[0]
+    args = transition[1:]
+
 def not_running(action, cmd): # pragma: no cover
   if action == 'start':
     print "Starting {}".format(cmd)
@@ -326,16 +383,25 @@ def running(action, cmd, proc): # pragma: no cover
     raise RuntimeError('unknown transition {}'.format(action))
 
 
-
-def proc_statemachine(state, cmd, *args):
-  # State 1: process hasn't started
-  while True:
-    action = yield
-    transition = state(action, cmd, *args)
-    state = transition[0]
-    args = transition[1:]
+## Debug Heplpers ######################
+def log(func):
+  name = funcname(func)
+  def wrapped(*args, **kw):
+    print "{}: args: {}, kw:{}".format(name, args, kw)
+    func(*args, **kw)
 
 
+  wrapped.__name__ = "log({})".format(name)
+  return wrapped
+
+def funcname(func):
+  if isinstance(func, partial):
+    return funcname(func.func)
+  else:
+    return func.__name__
+
+
+## Test Helpers ########################
 
 def setup(module):
   import tempfile
@@ -345,27 +411,6 @@ def teardown(module):
   import shutil
   shutil.rmtree(module.TEST_ROOT)
   del module.TEST_ROOT
-
-def compile_templates(template_mapping):
-
-  keys_to_context = defaultdict(list)
-  outputs = []
-
-  for template_path, output_path in template_mapping.items():
-    keys, template = make_template(template_path)
-    context = {}
-    for key in keys:
-      keys_to_context[key].append(context)
-    outputs.append((output_path, partial(guard,template,keys),  context))
-
-
-  print keys_to_context.keys()
-  return partial(render, outputs), partial(collect, keys_to_context)
-
-def collect_env(collect):
-  # add everything under the environment to env/
-  for key,value in os.environ.items():
-    collect('set', dict(key='env/' + key,value=value))
 
 
 
