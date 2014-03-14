@@ -7,17 +7,17 @@ on provided templates.
 
 
 Usage:
-  adnauseam [(-t <template>)...] CMD...
+  adnauseam [(-t <template>)...] [--] CMD...
  
 Options:
   -h --help     Show this screen.
   --version     Show version.
-
+  --            Used to seperate commands that have options cotnaining hyphens
 Example:
 
 adnauseam -t my.template:config.conf /usr/bin/command 
 """
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 import os
 import sys
@@ -33,7 +33,7 @@ from docopt import docopt
 BASE_URL = "http://172.17.42.1:4001/v2/keys/"
 
 Key = namedtuple('Key','path')
-
+class TemplateDep(dict): pass
 
 def main():  # pragma: no cover
   arguments = docopt(__doc__, version="AdNauseum " + __version__)
@@ -44,7 +44,6 @@ def main():  # pragma: no cover
   )
 
 def monitor(command, *args):  # pragma: no cover
-
   # ["blah:out", "foo:baz"] -> dict(blah="out", foo="baz")
   template_mapping = dict(a.split(':') for a in args)
   render, collect = compile_templates(template_mapping)
@@ -84,13 +83,11 @@ def compile_templates(template_mapping):
 
   for template_path, output_path in template_mapping.items():
     keys, template = make_template(template_path)
-    context = {}
+    context = TemplateDep()
     for key in keys:
       keys_to_context[key].append(context)
     outputs.append((output_path, partial(guard,template,keys),  context))
 
-
-  print keys_to_context.keys()
   return partial(render, outputs), partial(collect, keys_to_context)
 
 def make_template(path):
@@ -198,11 +195,16 @@ def guard(func, keys, value_dict):
   >>> guard(f, ['key1'], {'key2': 1})
 
   """
+  missing = []
   for key in keys:
     if key not in value_dict:
-      return None
+      missing.append(key)
 
-  return func(value_dict)
+  if missing:
+    print "Need {} to complete".format(set(missing))
+    return None
+  else:
+    return func(value_dict)
 
 
 
@@ -322,6 +324,7 @@ def render(outputs):
     else:
       open(path, 'w').write(output)
       created.append(path)
+
 
   return created
 
