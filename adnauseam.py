@@ -17,9 +17,10 @@ Example:
 
 adnauseam -t my.template:config.conf /usr/bin/command 
 """
-__version__ = "0.0.1"
+__version__ = "0.1.0"
 
 import os
+import sys
 import subprocess
 from functools import partial
 
@@ -53,12 +54,15 @@ def monitor(command, *args):  # pragma: no cover
 
 
   collect_env(collect)
+
+  index = collect_etcd(collect,BASE_URL)
+
   # start programs that needed values from the enviroment
   # but not etcd
   check_and_notify(render,template_mapping,statemachine)
 
   try:
-    index = 1
+    #index = 1
     while True:
       index = wait(collect, BASE_URL, index)
       check_and_notify(render, template_mapping, statemachine)
@@ -234,6 +238,7 @@ def collect(context_map, action, node):
 
 
   """
+
   key = node['key']
 
   contexts = context_map.get(key)
@@ -242,11 +247,12 @@ def collect(context_map, action, node):
 
   if action in ('delete','expire'):
     new = tuple(del_key(c,key) for c in contexts)
-  else:
+  elif action == 'set':
     new = tuple(set_key(c,key, node['value']) for c in contexts)
 
-  context_map[key] = new
 
+  context_map[key] = new
+ 
   return True
 
 def set_key(n, key, value):
@@ -328,10 +334,29 @@ def collect_env(collect):
     collect('set', dict(key='env/' + key,value=value))
 
 def collect_etcd(collect, url):
-  res = requests.get('{}?recursive=true'.format(
+  
+  resp = requests.get('{}?recursive=true'.format(
     url
   )).json()
-  return res
+
+  index =  collect_node(collect, resp['node'])
+  
+  return index
+
+def collect_node(collect, node):
+  if node.get('dir'):
+    return collect_dir(collect, node)
+  else:
+    return collect_key(collect, node)
+
+def collect_dir(collect, node):
+  return max(collect_node(collect, n) for n in node['nodes'])
+
+
+def collect_key(collect, node):
+  collect('set', node)
+  return node['modifiedIndex']
+
 
 def wait(dispatch, url, index): # pragma: no cover
   """
@@ -341,12 +366,16 @@ def wait(dispatch, url, index): # pragma: no cover
     resp = requests.get('{}?wait=true&recursive=true&waitIndex={}'.format(
       url,
       index
-    )).json()
-    node =  resp['node']
-    
-    consumed = dispatch(resp['action'], node)
-    if consumed: break
-    # else no one cared so go back to watching
+    ))
+
+    value = resp.json()
+    if resp.ok:
+      node =  value['node']
+      consumed = dispatch(value['action'], node)
+      if consumed: break
+      # else no one cared so go back to watching
+    elif value['errorCode']:
+      index = value['index'] + 1
 
   return  node['modifiedIndex'] + 1
 
@@ -415,6 +444,8 @@ def teardown(module):
 
 
 if __name__ == "__main__":  # pragma: no cover
+  main()
+  sys.exit(0)
   import doctest
   import adnauseam
 
