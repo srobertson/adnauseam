@@ -353,7 +353,10 @@ def collect_node(collect, node):
     return collect_key(collect, node)
 
 def collect_dir(collect, node):
-  return max(collect_node(collect, n) for n in node['nodes'])
+  return max(
+    collect_node(collect, n) 
+    for n in node.get('nodes',[])
+  )
 
 
 def collect_key(collect, node):
