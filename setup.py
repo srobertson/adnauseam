@@ -23,7 +23,7 @@ long_description = read('README.md')
 
 setup(
     name='adnauseam',
-    version="0.1.1",
+    version="0.1.2",
     url='http://github.com/srobertson/adnauseam/',
     license='Apache Software License',
     author='Scott Robertson',

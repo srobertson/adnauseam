@@ -378,8 +378,11 @@ def wait(dispatch, url, index): # pragma: no cover
     if resp.ok:
       node =  value['node']
       consumed = dispatch(value['action'], node)
-      if consumed: break
-      # else no one cared so go back to watching
+      if consumed: 
+        break
+      else:
+        #  no one cared so go back to watching
+        index += 1
     elif value['errorCode']:
       index = value['index'] + 1
 
