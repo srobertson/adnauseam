@@ -46,28 +46,39 @@ def main():  # pragma: no cover
 def monitor(command, *args):  # pragma: no cover
   # ["blah:out", "foo:baz"] -> dict(blah="out", foo="baz")
   template_mapping = dict(a.split(':') for a in args)
-  render, collect = compile_templates(template_mapping)
+  render, collect, variables= compile_templates(template_mapping)
   # setup our statemachine with it's initial state
   statemachine = proc_statemachine(not_running, command)
   statemachine.send(None)
-
-
+ 
   collect_env(collect)
 
-  index = collect_etcd(collect,BASE_URL)
 
   # start programs that needed values from the enviroment
   # but not etcd
   check_and_notify(render,template_mapping,statemachine)
 
+
   try:
-    #index = 1
-    while True:
-      index = wait(collect, BASE_URL, index)
-      check_and_notify(render, template_mapping, statemachine)
+    if not all_env(variables):
+      # check for etcd
+      index = collect_etcd(collect,BASE_URL)
+      while True:
+        index = wait(collect, BASE_URL, index)
+        check_and_notify(render, template_mapping, statemachine)
+    else:
+      # normally we keep the proc alive by polling etcd
+      # since we're not monitoring etcd we can just wait
+      # until the child dies
+      import signal
+      signal.pause()
+
 
   except KeyboardInterrupt:
     print "...Finishing"
+
+def all_env(variables):
+   return all([k.startswith('env') for k in variables.keys()])
 
 def check_and_notify(render, template_mapping, statemachine):
   if len(render()) == len(template_mapping):
@@ -88,7 +99,7 @@ def compile_templates(template_mapping):
       keys_to_context[key].append(context)
     outputs.append((output_path, partial(guard,template,keys),  context))
 
-  return partial(render, outputs), partial(collect, keys_to_context)
+  return partial(render, outputs), partial(collect, keys_to_context), keys_to_context
 
 def make_template(path):
   """
